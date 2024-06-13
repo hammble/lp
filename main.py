@@ -10,6 +10,7 @@ from termcolor import colored
 from vkbottle import VKAPIError
 from vkbottle.user import User, Message
 from vkbottle.api import API
+from vkbottle.tools import DocMessagesUploader
 
 from collections import OrderedDict
 
@@ -231,6 +232,15 @@ async def list_cmd(message: Message):
 
 '▹ гс (имя)\n'
 '╰ список голосовых шаблонов пользователя'
+
+'▹ +реакция (реплай) (1-16)\n'
+'╰ поставит реакцию на сообщение'
+
+'▹ -реакция (реплай)\n'
+'╰ удалит реакцию с сообщения'
+
+'▹ логи\n'
+'╰ отправит файл с логгами'
     ]
     await edit_message(message, text)
 
@@ -1095,6 +1105,53 @@ async def delete_template(e: Message, name: str):
     else:
         await edit_message(e, f'⚠ Голосового шаблона <<{name}>> не существует.')
 
+@user.on.message(text=[f'{prefix}+реакция <reaction_id:int>' for prefix in prefixes])
+async def send_rec(message: Message, reaction_id: int):
+    if message.from_id not in owners:
+        return
+    if reaction_id > 16:
+        await edit_message(message, '⚠ Максимальное значение <<reaction_id>>: 16.')
+        return
+    await message.ctx_api.request(
+        "messages.sendReaction",
+        {
+            "peer_id": message.peer_id,
+            "cmid": message.reply_message.conversation_message_id if message.reply_message else message.conversation_message_id,
+            "reaction_id": reaction_id
+        }
+    )
+    await edit_message(message, '✅ Реакция установлена.')
+
+@user.on.message(text=[f'{prefix}-реакция' for prefix in prefixes])
+async def delete_rec(message: Message):
+    if message.from_id not in owners:
+        return
+    await message.ctx_api.request(
+        "messages.deleteReaction",
+        {
+            "peer_id": message.peer_id,
+            "cmid": message.reply_message.conversation_message_id
+        }
+    )
+
+    await edit_message(message, '✅ Реакция удалена.')
+
+doc_uploader = DocMessagesUploader(user.api)
+
+@user.on.message(text=[f'{prefix}логи' for prefix in prefixes])
+async def setlogs(message: Message):
+    if message.from_id not in owners:
+        return
+    doc = await doc_uploader.upload(
+        title=f'logs.txt',
+        file_source='logs.txt',
+        peer_id=message.peer_id,
+    )
+    await user.api.messages.send(user_id=message.from_id, random_id=0, attachment=doc)
+    with open('logs.txt', 'w'):
+        pass
+    await edit_message(message, '✅ Файл был отправлен к себе в лс. Предварительно очищен от содержимого.')
+
 @user.on.message()
 async def log_message(message: Message):
     ignored_users = load_ignored_users()
@@ -1116,18 +1173,36 @@ async def log_message(message: Message):
             text = replacer.get(attachment_type, attachment_type)
         else:
             text = "• пересланные сообщения"
+
     prep_time = colored(f"[{current_time}]", 'blue')
+    prep_time2 = f"[{current_time}]"
+
     mark = ''
+
     user_ask = colored(await get_user_name_log(message.from_id), 'red')
+    user_ask2 = await get_user_name_log(message.from_id)
+
     prep_text = ": " + colored(text, 'cyan')
+    prep_text2 = ": " + text
+
     if message.peer_id > 2000000000:
         conversation = colored(await get_chat_name_log(message.peer_id), 'green')
+        conversation2 = await get_chat_name_log(message.peer_id)
+
     else:
         conversation = colored(await get_user_name_log(message.peer_id), 'green')
+        conversation2 = await get_user_name_log(message.peer_id)
+
         mark = "[ЛС]"
+
     info_conversation = f"[{conversation}/{user_ask}]{prep_text}"
+    info_conversation2 = f"[{conversation2}/{user_ask2}]{prep_text2}"
+
     print(prep_time, mark, info_conversation)
-    
+
+    with open('logs.txt', 'a', encoding='utf-8') as file:
+        file.write(prep_time2 + mark + info_conversation2 + '\n')
+
     if message.from_id in ignored_users:
         await user.api.messages.delete(message_ids=message.id)
 
